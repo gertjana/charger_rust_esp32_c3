@@ -1,15 +1,13 @@
-
-
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
 pub enum State {
     Available,
     Occupied,
     Charging,
     Error,
-    Off
+    Off,
 }
 
-#[derive(PartialEq, Eq, Hash, Clone, Debug)] 
+#[derive(PartialEq, Eq, Hash, Clone, Debug)]
 pub enum ConnectorType {
     Type2,
     CHAdeMO,
@@ -20,7 +18,7 @@ pub enum ConnectorType {
 pub struct Evse {
     pub id: String,
     pub connector_type: ConnectorType,
-    pub power: u32
+    pub power: u32,
 }
 
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
@@ -32,11 +30,7 @@ pub struct Charger {
 
 impl Charger {
     pub fn new(id: String, state: State, evses: Vec<Evse>) -> Self {
-        Self {
-            id,
-            state,
-            evses,
-        }
+        Self { id, state, evses }
     }
 
     pub fn get_state(&self) -> State {
@@ -49,12 +43,12 @@ impl Charger {
 
     pub fn set_state_from_action(&mut self, action: &str) {
         match action {
-            "error" =>      self.set_state(State::Error),
-            "available" =>  self.set_state(State::Available),
-            "occupied" =>   self.set_state(State::Occupied),
-            "charging" =>   self.set_state(State::Charging),
-            "off" =>        self.set_state(State::Off),
-            _ =>            self.set_state(State::Error),
+            "error" => self.set_state(State::Error),
+            "available" => self.set_state(State::Available),
+            "occupied" => self.set_state(State::Occupied),
+            "charging" => self.set_state(State::Charging),
+            "off" => self.set_state(State::Off),
+            _ => self.set_state(State::Error),
         };
     }
 }
