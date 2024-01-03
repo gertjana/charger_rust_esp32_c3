@@ -39,5 +39,7 @@ jobs:
         run: rustup component add rustfmt clippy
       - name: Install ldproxy
         run: cargo install ldproxy
+      - name: Add ldproxy
+        run: cargo add ldproxy@0.3.2
       - name: Run command
         run: cargo ${{ matrix.action.command }} ${{ matrix.action.args }}
