@@ -1,3 +1,23 @@
+use uuid::Uuid;
+use crate::evse::Evse;
+
+#[derive(PartialEq, Eq, Hash, Clone, Debug)]
+pub struct ChargerId {
+    pub id: String,
+}
+
+impl ChargerId {
+    pub fn new() -> Self {
+        Self {id: Uuid::new_v4().to_string()}
+    }
+}
+
+impl Default for ChargerId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
 pub enum State {
     Available,
@@ -8,28 +28,14 @@ pub enum State {
 }
 
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
-pub enum ConnectorType {
-    Type2,
-    CHAdeMO,
-    CCS,
-}
-
-#[derive(PartialEq, Eq, Hash, Clone, Debug)]
-pub struct Evse {
-    pub id: String,
-    pub connector_type: ConnectorType,
-    pub power: u32,
-}
-
-#[derive(PartialEq, Eq, Hash, Clone, Debug)]
 pub struct Charger {
-    pub id: String,
+    pub id: ChargerId,
     pub state: State,
     pub evses: Vec<Evse>,
 }
 
 impl Charger {
-    pub fn new(id: String, state: State, evses: Vec<Evse>) -> Self {
+    pub fn new(id: ChargerId, state: State, evses: Vec<Evse>) -> Self {
         Self { id, state, evses }
     }
 
@@ -50,5 +56,15 @@ impl Charger {
             "off" => self.set_state(State::Off),
             _ => self.set_state(State::Error),
         };
+    }
+}
+
+impl Default for Charger {
+    fn default() -> Self {
+        Self {
+            id: ChargerId::new(),
+            state: State::Available,
+            evses: vec![Evse::default()],
+        }
     }
 }

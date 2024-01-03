@@ -34,6 +34,7 @@ smart-leds = "*"
 smart-leds-trait = "0.2.1"
 anyhow = "1.0.44"
 ws2812-esp32-rmt-driver = "*"
+uuid = {version="1.6.1", features=["v4"]} 
 
 [build-dependencies]
 embuild = "0.31.3"

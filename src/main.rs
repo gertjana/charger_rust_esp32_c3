@@ -12,6 +12,7 @@ use std::thread;
 use anyhow::Result;
 
 pub mod charger;
+pub mod evse;
 pub mod leds;
 
 fn main() -> Result<()> {
@@ -19,23 +20,20 @@ fn main() -> Result<()> {
 
     esp_idf_svc::log::EspLogger::initialize_default();
 
-    let charger = Arc::new(Mutex::new(charger::Charger::new(
-        "1".to_string(),
-        charger::State::Available,
-        vec![],
-    )));
+    let charger = Arc::new(Mutex::new(charger::Charger::default()));
 
-    button_thread(charger.clone());
+    start_gpio_thread(charger.clone());
 
-    charger_report_thread(charger.clone());
+    start_charger_report_thread(charger.clone());
 
-    log::info!("Main loop, does nothing but indefinitely sleep for 1 sec ");
+    start_mqtt_thread();
+
     loop {
         thread::sleep(std::time::Duration::from_secs(1));
     }
 }
 
-fn button_thread(charger: Arc<Mutex<charger::Charger>>) {
+fn start_gpio_thread(charger: Arc<Mutex<charger::Charger>>) {
     thread::spawn(move || {
         log::info!("Started button thread");
         let peripherals = Peripherals::take().unwrap();
@@ -74,7 +72,7 @@ fn button_thread(charger: Arc<Mutex<charger::Charger>>) {
     });
 }
 
-fn charger_report_thread(charger: Arc<Mutex<charger::Charger>>) {
+fn start_charger_report_thread(charger: Arc<Mutex<charger::Charger>>) {
     let mut old_state = charger::State::Off;
     thread::spawn(move || {
         log::info!("Started Charger report thread");
@@ -84,6 +82,15 @@ fn charger_report_thread(charger: Arc<Mutex<charger::Charger>>) {
                 log::info!("Charger State: {:?}", state);
                 old_state = state;
             }
+            thread::sleep(std::time::Duration::from_millis(100));
+        }
+    });
+}
+
+fn start_mqtt_thread() {
+    thread::spawn(move || {
+        log::info!("Started MQTT thread");
+        loop {
             thread::sleep(std::time::Duration::from_millis(100));
         }
     });
