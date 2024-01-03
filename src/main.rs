@@ -26,7 +26,7 @@ fn main() -> Result<()> {
 
     start_charger_report_thread(charger.clone());
 
-    start_mqtt_thread();
+    start_mqtt_thread(charger.clone());
 
     loop {
         thread::sleep(std::time::Duration::from_secs(1));
@@ -87,7 +87,7 @@ fn start_charger_report_thread(charger: Arc<Mutex<charger::Charger>>) {
     });
 }
 
-fn start_mqtt_thread() {
+fn start_mqtt_thread(_charger: Arc<Mutex<charger::Charger>>) {
     thread::spawn(move || {
         log::info!("Started MQTT thread");
         loop {

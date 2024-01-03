@@ -1,5 +1,5 @@
-use uuid::Uuid;
 use crate::evse::Evse;
+use uuid::Uuid;
 
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
 pub struct ChargerId {
@@ -8,7 +8,9 @@ pub struct ChargerId {
 
 impl ChargerId {
     pub fn new() -> Self {
-        Self {id: Uuid::new_v4().to_string()}
+        Self {
+            id: Uuid::new_v4().to_string(),
+        }
     }
 }
 
