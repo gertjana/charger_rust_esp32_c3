@@ -65,7 +65,7 @@ impl Default for Charger {
     fn default() -> Self {
         Self {
             id: ChargerId::new(),
-            state: State::Available,
+            state: State::Off,
             evses: vec![Evse::default()],
         }
     }

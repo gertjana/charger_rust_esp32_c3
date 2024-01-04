@@ -8,6 +8,7 @@ use esp_idf_svc::hal::task::notification::Notification;
 use std::num::NonZeroU32;
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::thread::JoinHandle;
 
 use anyhow::Result;
 
@@ -22,20 +23,21 @@ fn main() -> Result<()> {
 
     let charger = Arc::new(Mutex::new(charger::Charger::default()));
 
-    start_gpio_thread(charger.clone());
+    start_gpio_thread(charger.clone())?;
 
-    start_charger_report_thread(charger.clone());
+    start_charger_report_thread(charger.clone())?;
 
-    start_mqtt_thread(charger.clone());
+    start_mqtt_thread(charger.clone())?;
 
     loop {
         thread::sleep(std::time::Duration::from_secs(1));
     }
 }
 
-fn start_gpio_thread(charger: Arc<Mutex<charger::Charger>>) {
-    thread::spawn(move || {
-        log::info!("Started button thread");
+fn start_gpio_thread(charger: Arc<Mutex<charger::Charger>>) -> Result<JoinHandle<()>, std::io::Error> {
+    thread::Builder::new().name("gpio".to_string()).spawn(move || {
+        print_thread_message(thread::current().name().unwrap(), "Started thread.");
+
         let peripherals = Peripherals::take().unwrap();
 
         let mut button = PinDriver::input(peripherals.pins.gpio9).unwrap();
@@ -69,29 +71,36 @@ fn start_gpio_thread(charger: Arc<Mutex<charger::Charger>>) {
             let mut c = charger.lock().unwrap();
             c.set_state_from_action(action);
         }
-    });
+    })
+
 }
 
-fn start_charger_report_thread(charger: Arc<Mutex<charger::Charger>>) {
+fn start_charger_report_thread(charger: Arc<Mutex<charger::Charger>>) -> Result<JoinHandle<()>, std::io::Error> {
     let mut old_state = charger::State::Off;
-    thread::spawn(move || {
-        log::info!("Started Charger report thread");
+    thread::Builder::new().name("report".to_string()).spawn(move || {
+        print_thread_message(thread::current().name().unwrap(), "Started thread.");
         loop {
             let state = charger.lock().unwrap().get_state();
             if state != old_state {
-                log::info!("Charger State: {:?}", state);
+                log::info!("{:?}: Charger State: {:?}", thread::current().name().unwrap(), state);
                 old_state = state;
             }
             thread::sleep(std::time::Duration::from_millis(100));
         }
-    });
+    })
 }
 
-fn start_mqtt_thread(_charger: Arc<Mutex<charger::Charger>>) {
-    thread::spawn(move || {
-        log::info!("Started MQTT thread");
+fn start_mqtt_thread(_charger: Arc<Mutex<charger::Charger>>) -> Result<JoinHandle<()>, std::io::Error> {
+    thread::Builder::new().name("mqtt".to_string()).spawn(move || {
+        print_thread_message(thread::current().name().unwrap(), "Started thread.");
         loop {
             thread::sleep(std::time::Duration::from_millis(100));
         }
-    });
+    })
+}
+
+
+fn print_thread_message(thread_name: &str, message: &str) {
+    let name = thread_name.replace("\"", "|");
+    log::info!("{:?}: {}", name, message);
 }
