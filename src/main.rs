@@ -23,11 +23,12 @@ fn main() -> Result<()> {
     let peripherals = Peripherals::take().unwrap();
 
     let org_charger = Arc::new(Mutex::new(charger::Charger::default()));
-    let org_relay = Arc::new(Mutex::new(PinDriver::output(peripherals.pins.gpio8).unwrap()));
+    let org_relay = Arc::new(Mutex::new(
+        PinDriver::output(peripherals.pins.gpio8).unwrap(),
+    ));
 
     let charger = org_charger.clone();
     charger.lock().unwrap().set_state(charger::State::Available);
-
 
     let relay = org_relay.clone();
     relay.lock().unwrap().set_low()?;
@@ -95,7 +96,7 @@ fn main() -> Result<()> {
                 old_state = state;
 
                 let mut c = charger.lock().unwrap();
-               let res = if state {
+                let res = if state {
                     c.transition(charger::ChargerInput::PlugIn)
                 } else {
                     c.transition(charger::ChargerInput::PlugOut)
@@ -105,7 +106,7 @@ fn main() -> Result<()> {
                         log::info!("Charger errored.");
                         relay.lock().unwrap().set_low().unwrap();
                         c.set_state(charger::State::Error);
-                       }
+                    }
                     None => {
                         log::warn!("Charger transition failed.");
                     }

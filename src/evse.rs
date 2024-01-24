@@ -58,4 +58,3 @@ impl Default for Evse {
         }
     }
 }
- 

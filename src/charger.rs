@@ -1,7 +1,6 @@
 use crate::evse::Evse;
 use uuid::Uuid;
 
-
 /// ChargerId
 /// an UUID based id for a charger
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
@@ -106,11 +105,7 @@ impl Charger {
     }
 
     pub fn transition(&mut self, input: ChargerInput) -> Option<ChargerOutput> {
-        let log_input = format!(
-            "Transitioning state: {:?}, input: {:?}",
-            self.state.clone(),
-            input
-        );
+        let orginal_state = self.state.clone();
 
         let output = match (input, self.state.clone()) {
             (ChargerInput::PlugIn, State::Available) => {
@@ -133,6 +128,10 @@ impl Charger {
                 self.set_state(State::Error);
                 Some(ChargerOutput::Errored)
             }
+            (_, State::Error) => {
+                self.set_state(State::Error);
+                Some(ChargerOutput::Errored)
+            }
             _ => {
                 log::warn!(
                     "{} with {} is an unknown Charger transition ",
@@ -143,8 +142,9 @@ impl Charger {
             }
         };
         log::info!(
-            "to state: {} -> {}, output: {:?}",
-            log_input.as_str(),
+            "Transistion state: {} with input: {} -> state: {}, output: {:?}",
+            orginal_state.as_str(),
+            input.as_str(),
             self.state.clone().as_str(),
             output,
         );
