@@ -4,6 +4,8 @@ use std::time::Duration;
 use ws2812_esp32_rmt_driver::driver::color::LedPixelColorGrbw32;
 use ws2812_esp32_rmt_driver::{LedPixelEsp32Rmt, RGBW8};
 
+use crate::charger::State;
+
 pub struct Led {
     driver: LedPixelEsp32Rmt<RGBW8, LedPixelColorGrbw32>,
 }
@@ -33,6 +35,16 @@ impl Led {
         self.set_from_rgbw(color);
     }
 
+    pub fn set_from_state(&mut self, state: State) {
+        match state {
+            State::Error => self.set_from_action("error"),
+            State::Available => self.set_from_action("available"),
+            State::Occupied => self.set_from_action("occupied"),
+            State::Charging => self.set_from_action("charging"),
+            State::Off => self.set_from_action("off"),
+        };
+    }
+
     pub fn get_charging_color(&self, action: &str) -> RGBW8 {
         match action {
             "error" => RGBW8::from((255, 0, 0, White(0))), // red
@@ -41,6 +53,12 @@ impl Led {
             "charging" => RGBW8::from((0, 0, 255, White(0))), // blue
             _ => RGBW8::from((0, 0, 0, White(0))),         // off
         }
+    }
+}
+
+impl Default for Led {
+    fn default() -> Self {
+        Self::new(2)
     }
 }
 

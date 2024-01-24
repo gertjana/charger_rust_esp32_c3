@@ -1,6 +1,12 @@
-# Rust on ESP32-C3
+# EV Charger in Rust on a ESP32-C3
 
 Try-ing to get Rust running on a M5-STAMP-C3U I have ly-ing around
+
+## Schematic
+
+![Schematic](images/schematic.png?raw=true "Schematic")
+
+> please note that the code is using the button (GPIO9) and multicolor led (GPIO2) that are on the M5 Stamp
 
 ## Get Started
 

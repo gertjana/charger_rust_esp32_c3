@@ -1,16 +1,13 @@
-use charger::ChargerMachine;
 use esp_idf_hal::peripherals::Peripherals;
 use esp_idf_svc as _;
 use esp_idf_svc::hal::gpio::InterruptType;
 use esp_idf_svc::hal::gpio::PinDriver;
 use esp_idf_svc::hal::gpio::Pull;
 use esp_idf_svc::hal::task::notification::Notification;
-use rust_fsm::StateMachine;
 
 use std::num::NonZeroU32;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::thread::JoinHandle;
 use std::time::Duration;
 
 use anyhow::Result;
@@ -21,28 +18,24 @@ pub mod leds;
 
 fn main() -> Result<()> {
     esp_idf_svc::sys::link_patches();
-
     esp_idf_svc::log::EspLogger::initialize_default();
 
-    let charger = Arc::new(Mutex::new(charger::Charger::default()));
-    let machine = Arc::new(Mutex::new(StateMachine::<charger::ChargerMachine>::new()));
-
-    start_gpio_thread(charger.clone(), machine.clone())?;
-
-    start_charger_report_thread(charger.clone(), machine.clone())?;
-
-    start_mqtt_thread(charger.clone(), machine.clone())?;
-
-    loop {
-        thread::sleep(Duration::from_secs(1));
-    }
-}
-
-fn onboard_button(_charger: Arc<Mutex<charger::Charger>>, machine: Arc<Mutex<StateMachine<ChargerMachine>>>) -> Result<JoinHandle<()>, std::io::Error> {
     let peripherals = Peripherals::take().unwrap();
-    thread::Builder::new().name("gpio-onboard-button".to_string()).spawn( move || {
-        print_thread_message(thread::current().name().unwrap(), "Started thread.");
 
+    let org_charger = Arc::new(Mutex::new(charger::Charger::default()));
+    let org_relay = Arc::new(Mutex::new(PinDriver::output(peripherals.pins.gpio8).unwrap()));
+
+    let charger = org_charger.clone();
+    charger.lock().unwrap().set_state(charger::State::Available);
+
+
+    let relay = org_relay.clone();
+    relay.lock().unwrap().set_low()?;
+
+    // onboard button thread
+    let relay = org_relay.clone();
+    let charger = org_charger.clone();
+    thread::spawn(move || {
         let mut button = PinDriver::input(peripherals.pins.gpio9).unwrap();
         button.set_pull(Pull::Up).unwrap();
         button.set_interrupt_type(InterruptType::PosEdge).unwrap();
@@ -62,66 +55,90 @@ fn onboard_button(_charger: Arc<Mutex<charger::Charger>>, machine: Arc<Mutex<Sta
             button.enable_interrupt().unwrap();
             notification.wait(esp_idf_svc::hal::delay::BLOCK);
 
-            let mut m = machine.lock().unwrap();
-            let _res = m.consume(&charger::ChargerInput::SwipeCard).unwrap();
+            let mut c = charger.lock().unwrap();
+            let mut r = relay.lock().unwrap();
+            let res = c.transition(charger::ChargerInput::SwipeCard);
+            match res {
+                Some(charger::ChargerOutput::LockedAndPowerIsOn) => {
+                    log::info!("Charger locked and power is on.");
+                    r.set_high().unwrap();
+                }
+                Some(charger::ChargerOutput::Unlocked) => {
+                    log::info!("Charger unlocked.");
+                    r.set_low().unwrap();
+                }
+                Some(charger::ChargerOutput::Errored) => {
+                    log::info!("Charger errored.");
+                    r.set_low().unwrap();
+                    c.set_state(charger::State::Error);
+                    thread::sleep(Duration::from_secs(5));
+                    c.set_state(charger::State::Available);
+                }
+                None => {
+                    log::warn!("Charger transition failed.");
+                }
+            }
         }
-    })
-}
+    });
 
-fn cable_switch(_charger: Arc<Mutex<charger::Charger>>, _machine: Arc<Mutex<StateMachine<ChargerMachine>>>) -> Result<JoinHandle<()>, std::io::Error> {
-    let _peripherals = Peripherals::take().unwrap();
-    thread::Builder::new().name("gpio-cable".to_string()).spawn( move || {
-        print_thread_message(thread::current().name().unwrap(), "Started thread.");
+    // cable switch thread
+    let relay = org_relay.clone();
+    let charger = org_charger.clone();
+    thread::spawn(move || {
+        let mut button = PinDriver::input(peripherals.pins.gpio10).unwrap();
+        button.set_pull(Pull::Up).unwrap();
+
+        let mut old_state = false;
         loop {
-            thread::sleep(Duration::from_millis(10));
-        }
-    })
-}
-
-
-fn start_gpio_thread(charger: Arc<Mutex<charger::Charger>>, machine: Arc<Mutex<StateMachine<ChargerMachine>>>) -> Result<JoinHandle<()>, std::io::Error> {
-    thread::Builder::new().name("gpio".to_string()).spawn(move || {
-        print_thread_message(thread::current().name().unwrap(), "Started thread.");
-
-        
-
-        onboard_button(charger.clone(), machine.clone()).unwrap();
-
-        cable_switch(charger.clone(), machine.clone()).unwrap();
-
-        loop {
-            thread::sleep(Duration::from_millis(10));
-        }
-    })
-
-}
-
-fn start_charger_report_thread(charger: Arc<Mutex<charger::Charger>>, _machine: Arc<Mutex<StateMachine<ChargerMachine>>>) -> Result<JoinHandle<()>, std::io::Error> {
-    let mut old_state = charger::State::Off;
-    thread::Builder::new().name("report".to_string()).spawn(move || {
-        print_thread_message(thread::current().name().unwrap(), "Started thread.");
-        loop {
-            let state = charger.lock().unwrap().get_state();
+            let state = button.is_low();
             if state != old_state {
-                log::info!("{:?}: Charger State: {:?}", thread::current().name().unwrap(), state);
                 old_state = state;
+
+                let mut c = charger.lock().unwrap();
+               let res = if state {
+                    c.transition(charger::ChargerInput::PlugIn)
+                } else {
+                    c.transition(charger::ChargerInput::PlugOut)
+                };
+                match res {
+                    Some(charger::ChargerOutput::Errored) => {
+                        log::info!("Charger errored.");
+                        relay.lock().unwrap().set_low().unwrap();
+                        c.set_state(charger::State::Error);
+                       }
+                    None => {
+                        log::warn!("Charger transition failed.");
+                    }
+                    _ => {}
+                }
+                //debounce
+                thread::sleep(Duration::from_millis(400));
             }
             thread::sleep(Duration::from_millis(100));
         }
-    })
-}
+    });
+    // report thread
+    let charger = org_charger.clone();
+    thread::spawn(move || {
+        let mut led = leds::Led::new(2);
 
-fn start_mqtt_thread(_charger: Arc<Mutex<charger::Charger>>, _machine: Arc<Mutex<StateMachine<ChargerMachine>>>) -> Result<JoinHandle<()>, std::io::Error> {
-    thread::Builder::new().name("mqtt".to_string()).spawn(move || {
-        print_thread_message(thread::current().name().unwrap(), "Started thread.");
+        loop {
+            led.set_from_state(charger.lock().unwrap().get_state());
+
+            thread::sleep(Duration::from_millis(100));
+        }
+    });
+
+    // mqtt thread
+    thread::spawn(move || {
         loop {
             thread::sleep(Duration::from_millis(10));
+            // TODO mqtt stuff
         }
-    })
-}
+    });
 
-
-fn print_thread_message(thread_name: &str, message: &str) {
-    let name = thread_name.replace("\"", "|");
-    log::info!("{:?}: {}", name, message);
+    loop {
+        // Change to blocking wait
+        thread::sleep(Duration::from_secs(1));
+    }
 }

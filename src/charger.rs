@@ -1,8 +1,9 @@
 use crate::evse::Evse;
 use uuid::Uuid;
-use rust_fsm::*;
 
 
+/// ChargerId
+/// an UUID based id for a charger
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
 pub struct ChargerId {
     pub id: String,
@@ -22,6 +23,8 @@ impl Default for ChargerId {
     }
 }
 
+/// State
+/// The different states a charger can be in
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
 pub enum State {
     Available,
@@ -31,6 +34,46 @@ pub enum State {
     Off,
 }
 
+impl State {
+    pub fn as_str(&self) -> &str {
+        match self {
+            State::Available => "available",
+            State::Occupied => "occupied",
+            State::Charging => "charging",
+            State::Error => "error",
+            State::Off => "off",
+        }
+    }
+}
+
+/// ChargerInput
+/// Charger state machine inputs
+#[derive(Debug, Clone, Copy)]
+pub enum ChargerInput {
+    PlugIn,
+    PlugOut,
+    SwipeCard,
+}
+impl ChargerInput {
+    fn as_str(&self) -> &str {
+        match self {
+            ChargerInput::PlugIn => "PlugIn",
+            ChargerInput::PlugOut => "PlugOut",
+            ChargerInput::SwipeCard => "SwipeCard",
+        }
+    }
+}
+
+/// ChargerOutput
+/// Charger state machine outputs
+#[derive(Debug)]
+pub enum ChargerOutput {
+    Unlocked,
+    LockedAndPowerIsOn,
+    Errored,
+}
+
+/// Charger
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
 pub struct Charger {
     pub id: ChargerId,
@@ -61,6 +104,52 @@ impl Charger {
             _ => self.set_state(State::Error),
         };
     }
+
+    pub fn transition(&mut self, input: ChargerInput) -> Option<ChargerOutput> {
+        let log_input = format!(
+            "Transitioning state: {:?}, input: {:?}",
+            self.state.clone(),
+            input
+        );
+
+        let output = match (input, self.state.clone()) {
+            (ChargerInput::PlugIn, State::Available) => {
+                self.set_state(State::Occupied);
+                Some(ChargerOutput::Unlocked)
+            }
+            (ChargerInput::PlugOut, State::Occupied) => {
+                self.set_state(State::Available);
+                Some(ChargerOutput::Unlocked)
+            }
+            (ChargerInput::SwipeCard, State::Occupied) => {
+                self.set_state(State::Charging);
+                Some(ChargerOutput::LockedAndPowerIsOn)
+            }
+            (ChargerInput::SwipeCard, State::Charging) => {
+                self.set_state(State::Occupied);
+                Some(ChargerOutput::Unlocked)
+            }
+            (ChargerInput::PlugOut, State::Charging) => {
+                self.set_state(State::Error);
+                Some(ChargerOutput::Errored)
+            }
+            _ => {
+                log::warn!(
+                    "{} with {} is an unknown Charger transition ",
+                    input.clone().as_str(),
+                    self.state.clone().as_str()
+                );
+                None
+            }
+        };
+        log::info!(
+            "to state: {} -> {}, output: {:?}",
+            log_input.as_str(),
+            self.state.clone().as_str(),
+            output,
+        );
+        output
+    }
 }
 
 impl Default for Charger {
@@ -70,97 +159,5 @@ impl Default for Charger {
             state: State::Off,
             evses: vec![Evse::default()],
         }
-    }
-}
-
-#[derive(Debug)]
-pub enum ChargerInput {
-    PlugIn,
-    PlugOut,
-    SwipeCard,
-}
-
-#[derive(Debug, PartialEq)]
-pub enum ChargerOutput {
-    Unlocked,
-    LockedAndPowerOn
-}
-
-pub struct ChargerMachine{}
-
-impl StateMachineImpl for ChargerMachine {
-    type Input = ChargerInput;
-    type State = State;
-    type Output = ChargerOutput;
-    const INITIAL_STATE: Self::State = State::Available;
-
-    fn transition(state: &Self::State, input: &Self::Input) -> Option<Self::State> {
-        match (state, input) {
-            (State::Available, ChargerInput::PlugIn) => {
-                Some(State::Occupied)
-            }
-            (State::Occupied, ChargerInput::PlugOut) => {
-                Some(State::Available)
-            }
-            (State::Occupied, ChargerInput::SwipeCard) => {
-                Some(State::Charging)
-            }
-            (State::Charging, ChargerInput::SwipeCard) => {
-                Some(State::Occupied)
-            }
-            _ => None,
-        }
-    }
-
-    fn output(state: &Self::State, input: &Self::Input) -> Option<Self::Output> {
-        match (state, input) {
-            (State::Available, _) => {
-                Some(ChargerOutput::Unlocked)
-            }
-            (State::Occupied, _) => {
-                Some(ChargerOutput::Unlocked)
-            }
-            (State::Charging, _) => {
-                Some(ChargerOutput::LockedAndPowerOn)
-            }
-            _ => None,
-        }
-    }
-}
-
-#[cfg(test)]
-use std::sync::{Arc, Mutex};
-
-#[test]
-fn test_charger_machine() {
-    let machine = Arc::new(Mutex::new(StateMachine::<ChargerMachine>::new()));
-    {
-        let mut lock = machine.lock().unwrap();
-        let res = lock.consume(&ChargerInput::PlugIn).unwrap();
-        assert_eq!(res, Some(ChargerOutput::Unlocked));
-        assert_eq!(lock.state(), &State::Occupied);    
-    }
-
-    let machine_swipe = machine.clone();
-    {
-        let mut lock = machine_swipe.lock().unwrap();
-        let res = lock.consume(&ChargerInput::SwipeCard).unwrap();
-        assert_eq!(res, Some(ChargerOutput::LockedAndPowerOn));
-        assert_eq!(lock.state(), &State::Charging);    
-    }
-
-    let machine_swipe_again = machine.clone();
-    {
-        let mut lock = machine_swipe_again.lock().unwrap();
-        let res = lock.consume(&ChargerInput::SwipeCard).unwrap();
-        assert_eq!(res, Some(ChargerOutput::Unlocked));
-        assert_eq!(lock.state(), &State::Occupied);    
-    }
-    let machine_unplug = machine.clone();
-    {
-        let mut lock = machine_unplug.lock().unwrap();
-        let res = lock.consume(&ChargerInput::PlugOut).unwrap();
-        assert_eq!(res, Some(ChargerOutput::Unlocked));
-        assert_eq!(lock.state(), &State::Available);    
     }
 }
