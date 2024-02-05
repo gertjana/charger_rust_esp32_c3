@@ -1,6 +1,6 @@
 # EV Charger in Rust on a ESP32-C3
 
-Try-ing to get Rust running on a M5-STAMP-C3U I have ly-ing around
+Try-ing to get Rust running on a M5-STAMP-C3U I have ly-ing around by building an EV Charger
 
 I blog about this here: 
 
