@@ -58,25 +58,22 @@ fn main() -> Result<()> {
 
             let mut c = charger.lock().unwrap();
             let mut r = relay.lock().unwrap();
-            let res = c.transition(charger::ChargerInput::SwipeCard);
+            let res = c.transition(charger::ChargerInput::Swipe);
             match res {
-                Some(charger::ChargerOutput::LockedAndPowerIsOn) => {
-                    log::info!("Charger locked and power is on.");
+                Ok((_, charger::ChargerOutput::LockedAndPowerIsOn)) => {
                     r.set_high().unwrap();
                 }
-                Some(charger::ChargerOutput::Unlocked) => {
-                    log::info!("Charger unlocked.");
+                Ok((_, charger::ChargerOutput::Unlocked)) => {
                     r.set_low().unwrap();
                 }
-                Some(charger::ChargerOutput::Errored) => {
-                    log::info!("Charger errored.");
+                Ok((_, charger::ChargerOutput::Errored)) => {
                     r.set_low().unwrap();
                     c.set_state(charger::State::Error);
                     thread::sleep(Duration::from_secs(5));
                     c.set_state(charger::State::Available);
                 }
-                None => {
-                    log::warn!("Charger transition failed.");
+                Err(e) => {
+                    log::warn!("Charger transition failed: {}", e);
                 }
             }
         }
@@ -102,13 +99,13 @@ fn main() -> Result<()> {
                     c.transition(charger::ChargerInput::PlugOut)
                 };
                 match res {
-                    Some(charger::ChargerOutput::Errored) => {
+                    Ok((_, charger::ChargerOutput::Errored)) => {
                         log::info!("Charger errored.");
                         relay.lock().unwrap().set_low().unwrap();
                         c.set_state(charger::State::Error);
                     }
-                    None => {
-                        log::warn!("Charger transition failed.");
+                    Err(e) => {
+                        log::warn!("Charger transition failed. {:?}",e);
                     }
                     _ => {}
                 }

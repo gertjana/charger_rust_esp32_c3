@@ -1,6 +1,7 @@
 use crate::evse::Evse;
 use uuid::Uuid;
 
+type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 /// ChargerId
 /// an UUID based id for a charger
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
@@ -51,14 +52,14 @@ impl State {
 pub enum ChargerInput {
     PlugIn,
     PlugOut,
-    SwipeCard,
+    Swipe,
 }
 impl ChargerInput {
     fn as_str(&self) -> &str {
         match self {
             ChargerInput::PlugIn => "PlugIn",
             ChargerInput::PlugOut => "PlugOut",
-            ChargerInput::SwipeCard => "SwipeCard",
+            ChargerInput::Swipe => "Swipe",
         }
     }
 }
@@ -89,8 +90,9 @@ impl Charger {
         self.state.clone()
     }
 
-    pub fn set_state(&mut self, state: State) {
+    pub fn set_state(&mut self, state: State) -> State {
         self.state = state;
+        self.state.clone()
     }
 
     pub fn set_state_from_action(&mut self, action: &str) {
@@ -104,41 +106,32 @@ impl Charger {
         };
     }
 
-    pub fn transition(&mut self, input: ChargerInput) -> Option<ChargerOutput> {
+    pub fn transition(&mut self, input: ChargerInput) -> Result<(State, ChargerOutput)> {
         let orginal_state = self.state.clone();
 
         let output = match (input, self.state.clone()) {
             (ChargerInput::PlugIn, State::Available) => {
-                self.set_state(State::Occupied);
-                Some(ChargerOutput::Unlocked)
+                Ok((self.set_state(State::Occupied), ChargerOutput::Unlocked))
             }
             (ChargerInput::PlugOut, State::Occupied) => {
-                self.set_state(State::Available);
-                Some(ChargerOutput::Unlocked)
+                Ok((self.set_state(State::Available), ChargerOutput::Unlocked))
             }
-            (ChargerInput::SwipeCard, State::Occupied) => {
-                self.set_state(State::Charging);
-                Some(ChargerOutput::LockedAndPowerIsOn)
+            (ChargerInput::Swipe, State::Occupied) => Ok((
+                self.set_state(State::Charging),
+                ChargerOutput::LockedAndPowerIsOn,
+            )),
+            (ChargerInput::Swipe, State::Charging) => {
+                Ok((self.set_state(State::Occupied), ChargerOutput::Unlocked))
             }
-            (ChargerInput::SwipeCard, State::Charging) => {
-                self.set_state(State::Occupied);
-                Some(ChargerOutput::Unlocked)
-            }
-            (ChargerInput::PlugOut, State::Charging) => {
-                self.set_state(State::Error);
-                Some(ChargerOutput::Errored)
-            }
-            (_, State::Error) => {
-                self.set_state(State::Error);
-                Some(ChargerOutput::Errored)
-            }
+            (ChargerInput::PlugOut, State::Charging) => Err("Cannot unplug while charging".into()),
+            (_, State::Error) => Ok((self.set_state(State::Error), ChargerOutput::Errored)),
             _ => {
                 log::warn!(
                     "{} with {} is an unknown Charger transition ",
                     input.clone().as_str(),
                     self.state.clone().as_str()
                 );
-                None
+                Err("Invalid transition".into())
             }
         };
         log::info!(
