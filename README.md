@@ -2,6 +2,10 @@
 
 Try-ing to get Rust running on a M5-STAMP-C3U I have ly-ing around
 
+I blog about this here: 
+
+https://gertjanassies.dev/blog/240101_rust_on_esp32
+
 ## Schematic
 
 ![Schematic](images/schematic.png?raw=true "Schematic")
