@@ -1,13 +1,10 @@
-use embedded_svc::mqtt::client::QoS;
 use embedded_svc::wifi::{AuthMethod, ClientConfiguration, Configuration};
 
 use esp_idf_hal::peripherals::Peripherals;
 
 use esp_idf_svc as _;
 use esp_idf_svc::eventloop::EspSystemEventLoop;
-use esp_idf_svc::hal::gpio::InterruptType;
-use esp_idf_svc::hal::gpio::PinDriver;
-use esp_idf_svc::hal::gpio::Pull;
+use esp_idf_svc::hal::gpio::{InterruptType, PinDriver, Pull};
 use esp_idf_svc::hal::task::notification::Notification;
 use esp_idf_svc::mqtt::client::*;
 use esp_idf_svc::nvs::EspDefaultNvsPartition;
