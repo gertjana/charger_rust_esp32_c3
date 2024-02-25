@@ -2,7 +2,7 @@
 
 Try-ing to get Rust running on a M5-STAMP-C3U I have ly-ing around by building an EV Charger
 
-I blog about this here: 
+I blog about this here:
 
 https://gertjanassies.dev/blog/240101_rust_on_esp32
 
@@ -16,7 +16,7 @@ https://gertjanassies.dev/blog/240101_rust_on_esp32
 
 ### Prerequisites
 
- - Prerequisites for ESP-IDF: https://docs.espressif.com/projects/esp-idf/en/latest/esp32/get-started/linux-macos-setup.html#step-1-install-prerequisites 
+ - Prerequisites for ESP-IDF: https://docs.espressif.com/projects/esp-idf/en/latest/esp32/get-started/linux-macos-setup.html#step-1-install-prerequisites
  - rustup: https://rustup.rs/
  - Prereqs for esp-idf-template: https://github.com/esp-rs/esp-idf-template
 

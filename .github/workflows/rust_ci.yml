@@ -41,5 +41,7 @@ jobs:
         run: cargo install ldproxy
       - name: Add ldproxy
         run: cargo add ldproxy@0.3.2
+      - name: Copy config
+        run: cp src/_config.rs src/config.rs
       - name: Run command
         run: cargo ${{ matrix.action.command }} ${{ matrix.action.args }}

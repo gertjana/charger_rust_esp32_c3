@@ -2,3 +2,5 @@
 **/target
 **/.embuild
 **/Cargo.lock
+src/config.rs
+.idea/
