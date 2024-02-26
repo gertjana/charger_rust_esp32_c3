@@ -106,6 +106,16 @@ impl Charger {
         };
     }
 
+    /// Transistions the charger state machine
+    ///
+    /// # Arguments
+    ///
+    /// * `input` - the InputEvent to transition the charger
+    ///
+    /// # Returns
+    ///
+    /// Result<(State, ChargerOutput)> - the new state and the output of the transition
+    ///
     pub fn transition(&mut self, input: ChargerInput) -> Result<(State, ChargerOutput)> {
         let orginal_state = self.state.clone();
 
