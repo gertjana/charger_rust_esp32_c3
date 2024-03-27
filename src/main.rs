@@ -1,5 +1,6 @@
 use embedded_svc::wifi::{AuthMethod, ClientConfiguration, Configuration};
 
+use esp_idf_hal::i2c::*;
 use esp_idf_hal::peripherals::Peripherals;
 
 use esp_idf_svc as _;
@@ -10,18 +11,22 @@ use esp_idf_svc::mqtt::client::*;
 use esp_idf_svc::nvs::EspDefaultNvsPartition;
 use esp_idf_svc::wifi::EspWifi;
 
+use ssd1306::{prelude::*, I2CDisplayInterface};
+
 use std::num::NonZeroU32;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use crate::commands::OCPPResponse;
+use crate::commands::{OCPPResponse, UniqueId};
+use crate::display::{Display, DisplayData};
 use crate::messages::heartbeat_request;
 use crate::queue::{FifoQueue, Queue};
 
 pub mod charger;
 pub mod commands;
 pub mod config;
+pub mod display;
 pub mod evse;
 pub mod leds;
 pub mod messages;
@@ -40,6 +45,8 @@ fn main() -> anyhow::Result<()> {
     let org_command_queue_send = Arc::new(FifoQueue::<commands::OCPPRequest>::new());
 
     let org_command_queue_recieve = Arc::new(FifoQueue::<commands::OCPPResponse>::new());
+
+    let org_unique_id = Arc::new(Mutex::new(UniqueId::new()));
 
     let org_relay = Arc::new(Mutex::new(
         PinDriver::output(peripherals.pins.gpio8).unwrap(),
@@ -68,8 +75,9 @@ fn main() -> anyhow::Result<()> {
     wifi.start()?;
     wifi.connect()?;
 
-    while !wifi.is_connected().unwrap() {
-        // Get and print connection configuration
+    let mut cnt = 0;
+    while !wifi.is_connected().unwrap() && cnt < 10 {
+        cnt += 1;
         let config = wifi.get_configuration().unwrap();
         log::info!("Waiting for station {:?}", config);
         thread::sleep(Duration::from_secs(1));
@@ -78,6 +86,30 @@ fn main() -> anyhow::Result<()> {
     let ip = wifi.get_configuration().unwrap();
     log::info!("Connected to wifi {:?}", ip);
 
+    let i2c = peripherals.i2c0;
+    let sda = peripherals.pins.gpio21;
+    let scl = peripherals.pins.gpio20;
+
+    let i2c_config = I2cConfig::new().baudrate(100_000.into());
+    let i2c = I2cDriver::new(i2c, sda, scl, &i2c_config)?;
+
+    let interface: I2CInterface<I2cDriver<'_>> = I2CDisplayInterface::new(i2c);
+
+    let display = Arc::new(Mutex::new(Display::new(interface)));
+
+    thread::sleep(Duration::from_millis(2000));
+    let ip = wifi.sta_netif().get_ip_info().unwrap().ip;
+
+    let display_data = DisplayData::new(
+        "ESP32 EV Charger".into(),
+        "Initializing..".into(),
+        "Available".into(),
+        ip.to_string(),
+    );
+
+    let d = display.clone();
+    d.lock().unwrap().set_data(display_data);
+    d.lock().unwrap().refresh();
     // MQTT
 
     let conf = MqttClientConfiguration {
@@ -85,19 +117,18 @@ fn main() -> anyhow::Result<()> {
         ..Default::default()
     };
 
+    let broker = config.mqtt.broker.clone();
     let command_receive_queue = org_command_queue_recieve.clone();
     let mut client = EspMqttClient::new(&config.mqtt.broker, &conf, move |message_event| {
         match message_event.as_ref().unwrap() {
-            Event::Connected(_) => println!("Connected"),
-            Event::Subscribed(id) => println!("Subscribed to {} id", id),
+            Event::Connected(_) => log::info!("Connected to MQTT {}", broker),
+            Event::Subscribed(id) => log::info!("Subscribed to {} id", id),
             Event::Received(msg) => {
                 log::info!("Received message: {}", String::from_utf8_lossy(msg.data()));
                 if !msg.data().is_empty() {
-                    match serde_json::from_slice(msg.data()) {
+                    match OCPPResponse::from_ocpp_json_message(msg.data()) {
                         Ok(response) => {
-                            println!("Recieved {}", std::str::from_utf8(msg.data()).unwrap());
-                            command_receive_queue
-                                .push(OCPPResponse::from_ocpp_json_message(response).unwrap());
+                            command_receive_queue.push(response);
                         }
                         Err(e) => {
                             log::error!("Failed to parse message: {:?}", e);
@@ -115,17 +146,27 @@ fn main() -> anyhow::Result<()> {
     );
     client.subscribe(&topic, QoS::AtLeastOnce)?;
 
-    //bootnotification
+    let d = display.clone();
+    d.lock().unwrap().set_message("MQTT Connected".to_string());
+    d.lock().unwrap().refresh();
+
+    thread::sleep(Duration::from_millis(500));
+
+    let unique_id = org_unique_id.clone();
     let command = commands::OCPPRequest {
         message_type_id: commands::MessageType::Call,
-        unique_id: "1".to_string(),
+        unique_id: unique_id.lock().unwrap().next_id().to_string(),
         action: "BootNotification".to_string(),
         payload: messages::boot_notification_request()?,
     };
+
     log::info!("sending BootNotification: {:?}", command);
+
     org_command_queue_send.clone().push(command);
 
     // onboard button thread
+    let send_queue = org_command_queue_send.clone();
+    let unique_id = org_unique_id.clone();
     let relay = org_relay.clone();
     let charger = org_charger.clone();
     thread::spawn(move || {
@@ -154,9 +195,21 @@ fn main() -> anyhow::Result<()> {
             match res {
                 Ok((_, charger::ChargerOutput::LockedAndPowerIsOn)) => {
                     r.set_high().unwrap();
+                    send_queue.push(commands::OCPPRequest {
+                        message_type_id: commands::MessageType::Call,
+                        unique_id: unique_id.lock().unwrap().next_id().to_string(),
+                        action: "StartTransaction".to_string(),
+                        payload: messages::start_transaction_request().unwrap(),
+                    });
                 }
                 Ok((_, charger::ChargerOutput::Unlocked)) => {
                     r.set_low().unwrap();
+                    send_queue.push(commands::OCPPRequest {
+                        message_type_id: commands::MessageType::Call,
+                        unique_id: unique_id.lock().unwrap().next_id().to_string(),
+                        action: "StopTransaction".to_string(),
+                        payload: messages::stop_transaction_request().unwrap(),
+                    });
                 }
                 Ok((_, charger::ChargerOutput::Errored)) => {
                     r.set_low().unwrap();
@@ -207,19 +260,29 @@ fn main() -> anyhow::Result<()> {
             thread::sleep(Duration::from_millis(100));
         }
     });
+
     // report thread
+    let d = display.clone();
     let charger = org_charger.clone();
     thread::spawn(move || {
         let mut led = leds::Led::new(2);
-
+        let mut old_state = charger::State::Off;
         loop {
-            led.set_from_state(charger.lock().unwrap().get_state());
-
+            let new_state = charger.lock().unwrap().get_state();
+            led.set_from_state(new_state);
+            if old_state != charger.lock().unwrap().get_state().clone() {
+                d.lock()
+                    .unwrap()
+                    .set_state(charger.lock().unwrap().get_state().as_str().to_string());
+                d.lock().unwrap().refresh();
+                old_state = charger.lock().unwrap().get_state();
+            }
             thread::sleep(Duration::from_millis(100));
         }
     });
 
     // mqtt thread publish when send queue is not empty
+    let d = display.clone();
     let send_queue = org_command_queue_send.clone();
     thread::spawn(move || loop {
         if !send_queue.is_empty() {
@@ -233,8 +296,12 @@ fn main() -> anyhow::Result<()> {
                 &topic,
                 QoS::AtMostOnce,
                 false,
-                command.to_ocpp_json_messagce().unwrap().as_bytes(),
+                command.to_ocpp_json_message().unwrap().as_bytes(),
             );
+            d.lock()
+                .unwrap()
+                .set_message(format!("-> {}", command.action));
+            d.lock().unwrap().refresh();
             if let Err(e) = result {
                 log::error!("Failed to publish message: {:?}", e);
             }
@@ -242,11 +309,14 @@ fn main() -> anyhow::Result<()> {
         thread::sleep(Duration::from_millis(100));
     });
 
+    // Handle retrieve queue thread
+
+    let d = display.clone();
     let receive_queue = org_command_queue_recieve.clone();
     thread::spawn(move || loop {
         if !receive_queue.is_empty() {
             let response = receive_queue.pop();
-            log::info!("Got a response back: {:?}", response);
+            log::info!("Processing Response: {:?}", response);
             match response.action.as_str() {
                 "BootNotification" => {
                     let payload = serde_json::from_value::<
@@ -266,26 +336,35 @@ fn main() -> anyhow::Result<()> {
                     log::info!("Unhandled response: {:?}", response);
                 }
             }
+            d.lock()
+                .unwrap()
+                .set_message(format!("<- {}", response.action));
+            d.lock().unwrap().refresh();
         }
         thread::sleep(Duration::from_millis(100));
     });
 
+    // Heartbeat thread
+    let unique_id = org_unique_id.clone();
     let send_queue = org_command_queue_send.clone();
     thread::spawn(move || loop {
-        log::info!("Sending heartbeat");
-
         let command = commands::OCPPRequest {
             message_type_id: commands::MessageType::Call,
-            unique_id: "1".to_string(),
+            unique_id: unique_id.lock().unwrap().next_id().to_string(),
             action: "Heartbeat".to_string(),
             payload: heartbeat_request().unwrap(),
         };
-
         send_queue.push(command);
-        thread::sleep(Duration::from_secs(900));
+
+        thread::sleep(Duration::from_secs(60));
     });
 
+    let d = display.clone();
     loop {
         thread::sleep(Duration::from_secs(10));
+        let mut disp = d.lock().unwrap();
+        disp.set_message("".into());
+        disp.set_ip(ip.to_string());
+        disp.refresh();
     }
 }

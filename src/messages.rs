@@ -16,3 +16,28 @@ pub fn heartbeat_request() -> Result<serde_json::Value, serde_json::Error> {
     let value = serde_json::to_value(message)?;
     Ok(value)
 }
+
+pub fn start_transaction_request() -> Result<serde_json::Value, serde_json::Error> {
+    let message = rust_ocpp::v1_6::messages::start_transaction::StartTransactionRequest {
+        connector_id: 1,
+        id_tag: "123456".into(),
+        meter_start: 0,
+        timestamp: chrono::Utc::now(),
+        ..Default::default()
+    };
+    let value = serde_json::to_value(message)?;
+    Ok(value)
+}
+
+pub fn stop_transaction_request() -> Result<serde_json::Value, serde_json::Error> {
+    let message = rust_ocpp::v1_6::messages::stop_transaction::StopTransactionRequest {
+        id_tag: Some("123456".into()),
+        meter_stop: 0,
+        timestamp: chrono::Utc::now(),
+        transaction_id: 1,
+        reason: Some(rust_ocpp::v1_6::types::Reason::Local),
+        ..Default::default()
+    };
+    let value = serde_json::to_value(message)?;
+    Ok(value)
+}

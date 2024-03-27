@@ -12,6 +12,11 @@ https://gertjanassies.dev/blog/240101_rust_on_esp32
 
 > please note that the code is using the button (GPIO9) and multicolor led (GPIO2) that are on the M5 Stamp
 
+## Breadboard
+
+![Breadbord](images/breadboard.png?raw=true "Breadboard")
+
+
 ## Get Started
 
 ### Prerequisites

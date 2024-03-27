@@ -2,6 +2,7 @@ use crate::evse::Evse;
 use uuid::Uuid;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+
 /// ChargerId
 /// an UUID based id for a charger
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
